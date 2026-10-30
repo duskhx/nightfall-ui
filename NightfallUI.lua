@@ -874,10 +874,6 @@ function Window:AddSettingsTab()
 	key:OnChanged(function(k)
 		Library.ToggleKey = k or Library.ToggleKey
 	end)
-	local color = menu:AddColorpicker({ Name = "Color de acento", Flag = "__accent", Default = Theme.Accent })
-	color:OnChanged(function(c)
-		Library:SetAccent(c)
-	end)
 	menu:AddButton({
 		Name = "Descargar interfaz",
 		Callback = function()
@@ -955,7 +951,7 @@ function Library:CreateWindow(opts)
 	local top = Frame({ Size = UDim2.new(1, 0, 0, 36), BackgroundTransparency = 1, Parent = main })
 	local title = Label({
 		Position = UDim2.fromOffset(14, 0),
-		Size = UDim2.new(1, -28, 1, 0),
+		Size = UDim2.new(1, -110, 1, 0),
 		Text = opts.Title or "NightfallUI",
 		Font = FONT_BOLD,
 		TextSize = 14,
@@ -1032,6 +1028,70 @@ function Library:CreateWindow(opts)
 		Elements = {},
 		LastCategory = nil,
 	}, Window)
+
+	-- Botones de la barra superior: color, minimizar y cerrar
+	local fullSize = main.Size
+	local function topButton(text, offset)
+		return Button({
+			AnchorPoint = Vector2.new(1, 0.5),
+			Position = UDim2.new(1, offset, 0.5, 0),
+			Size = UDim2.fromOffset(24, 24),
+			BackgroundColor3 = Theme.Element,
+			Text = text,
+			TextColor3 = Theme.TextDim,
+			Font = FONT_BOLD,
+			Parent = top,
+		}, { Corner(6) })
+	end
+	local closeBtn = topButton("X", -8)
+	local minBtn = topButton("-", -38)
+	local colorBtn = topButton("", -68)
+	local colorDot = Frame({
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(12, 12),
+		Parent = colorBtn,
+	}, { Corner(6) })
+	accent(colorDot, "BackgroundColor3")
+
+	local popup = Frame({
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -8, 0, 40),
+		Size = UDim2.fromOffset(210, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundColor3 = Theme.Element,
+		Visible = false,
+		Parent = main,
+	}, { Corner(8), Stroke(), Padding(10, 6), List(4) })
+	local popupSection = setmetatable({ Body = popup, Window = window }, Section)
+	local accentPicker = popupSection:AddColorpicker({ Name = "Color de acento", Flag = "__accent", Default = Theme.Accent })
+	accentPicker.NoSave = true
+	accentPicker:OnChanged(function(c)
+		Library:SetAccent(c)
+	end)
+	table.remove(window.Elements) -- el buscador no debe ocultar este selector
+
+	for _, b in ipairs({ closeBtn, minBtn, colorBtn }) do
+		connect(b.MouseEnter, function()
+			tween(b, { BackgroundColor3 = Theme.ElementHover })
+		end)
+		connect(b.MouseLeave, function()
+			tween(b, { BackgroundColor3 = Theme.Element })
+		end)
+	end
+	connect(colorBtn.MouseButton1Click, function()
+		popup.Visible = not popup.Visible
+	end)
+	connect(minBtn.MouseButton1Click, function()
+		window.Minimized = not window.Minimized
+		popup.Visible = false
+		sidebar.Visible = not window.Minimized
+		content.Visible = not window.Minimized
+		main.Size = window.Minimized and UDim2.new(fullSize.X.Scale, fullSize.X.Offset, 0, 36) or fullSize
+	end)
+	connect(closeBtn.MouseButton1Click, function()
+		Library:Unload()
+	end)
 
 	connect(search:GetPropertyChangedSignal("Text"), function()
 		local q = string.lower(search.Text)
