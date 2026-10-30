@@ -1022,10 +1022,10 @@ function Library:CreateWindow(opts)
 	local main = Frame({
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.5),
-		Size = opts.Size or UDim2.fromOffset(580, 420),
+		Size = opts.Size or UDim2.fromOffset(450, 330),
 		BackgroundColor3 = Theme.Background,
 		Parent = gui,
-	}, { Corner(10), New("UIScale", { Scale = opts.Scale or 0.75 }) })
+	}, { Corner(10) })
 
 	-- Neon edge that follows the accent color
 	local edge = Stroke(Theme.Accent, 1.5)
