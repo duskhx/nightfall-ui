@@ -41,6 +41,7 @@ local Theme = Library.Theme
 
 local connections = {}
 local accentObjects = {}
+local themeHooks = {}
 local currentGui
 
 -- Utilities ---------------------------------------------------------------
@@ -291,12 +292,73 @@ end
 
 -- Theme ---------------------------------------------------------------------
 
+-- Every surface color is derived from the accent hue, so one color retints the whole UI.
+local THEMED_KEYS = { "Background", "Sidebar", "Element", "ElementHover", "Outline", "TextDim" }
+
+local function deriveTheme(color)
+	local h, s = color:ToHSV()
+	local k = math.clamp(s, 0.25, 1)
+	return {
+		Accent = color,
+		Background = Color3.fromHSV(h, 0.55 * k, 0.09),
+		Sidebar = Color3.fromHSV(h, 0.5 * k, 0.12),
+		Element = Color3.fromHSV(h, 0.45 * k, 0.17),
+		ElementHover = Color3.fromHSV(h, 0.45 * k, 0.23),
+		Outline = Color3.fromHSV(h, 0.5 * k, 0.32),
+		TextDim = Color3.fromHSV(h, 0.12 * k, 0.72),
+	}
+end
+
+local function secondaryColor(color)
+	local h, s = color:ToHSV()
+	return Color3.fromHSV((h + 0.12) % 1, math.max(s, 0.6), 1)
+end
+
+-- Swaps every instance color that still holds an old theme color for the new one.
+local function recolor(new)
+	if not currentGui then
+		return
+	end
+	local function swap(inst, prop)
+		local value = inst[prop]
+		for _, key in ipairs(THEMED_KEYS) do
+			if value == Theme[key] then
+				inst[prop] = new[key]
+				return
+			end
+		end
+	end
+	for _, inst in ipairs(currentGui:GetDescendants()) do
+		if inst:IsA("UIStroke") then
+			swap(inst, "Color")
+		elseif inst:IsA("GuiObject") then
+			swap(inst, "BackgroundColor3")
+			if inst:IsA("TextLabel") or inst:IsA("TextButton") or inst:IsA("TextBox") then
+				swap(inst, "TextColor3")
+			end
+			if inst:IsA("TextBox") then
+				swap(inst, "PlaceholderColor3")
+			end
+			if inst:IsA("ScrollingFrame") then
+				swap(inst, "ScrollBarImageColor3")
+			end
+		end
+	end
+end
+
 function Library:SetAccent(color)
-	Theme.Accent = color
+	local new = deriveTheme(color)
+	recolor(new)
+	for key, value in pairs(new) do
+		Theme[key] = value
+	end
 	for _, entry in ipairs(accentObjects) do
 		if entry[1].Parent then
 			entry[1][entry[2]] = color
 		end
+	end
+	for _, hook in ipairs(themeHooks) do
+		hook(color)
 	end
 end
 
@@ -306,6 +368,7 @@ function Library:Unload()
 	end
 	table.clear(connections)
 	table.clear(accentObjects)
+	table.clear(themeHooks)
 	table.clear(Library.Flags)
 	table.clear(Library.Options)
 	if currentGui then
@@ -775,6 +838,7 @@ function Tab:AddSection(name)
 		Size = UDim2.new(1, 0, 0, 0),
 		AutomaticSize = Enum.AutomaticSize.Y,
 		BackgroundColor3 = Theme.Sidebar,
+		BackgroundTransparency = 0.2,
 		Parent = self.Page,
 	}, { Corner(8), Stroke(), Padding(12, 10), List(8) })
 
@@ -925,6 +989,9 @@ end
 function Library:CreateWindow(opts)
 	opts = opts or {}
 	Library:Unload()
+	for key, value in pairs(deriveTheme(Theme.Accent)) do
+		Theme[key] = value
+	end
 
 	local parent = opts.Parent or Players.LocalPlayer:WaitForChild("PlayerGui")
 	local gui = New("ScreenGui", {
@@ -942,7 +1009,35 @@ function Library:CreateWindow(opts)
 		Size = opts.Size or UDim2.fromOffset(580, 420),
 		BackgroundColor3 = Theme.Background,
 		Parent = gui,
-	}, { Corner(10), Stroke() })
+	}, { Corner(10) })
+
+	-- Neon edge and two soft gradient glows that follow the accent color
+	local edge = Stroke(Theme.Accent, 1.5)
+	edge.Parent = main
+	accent(edge, "Color")
+	local function glow(transparency)
+		return Frame({
+			Size = UDim2.fromScale(1, 1),
+			BackgroundColor3 = Theme.Accent,
+			Parent = main,
+		}, { Corner(10), New("UIGradient", { Rotation = 45, Transparency = transparency }) })
+	end
+	local glowA = glow(NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.72),
+		NumberSequenceKeypoint.new(0.55, 0.95),
+		NumberSequenceKeypoint.new(1, 1),
+	}))
+	local glowB = glow(NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 1),
+		NumberSequenceKeypoint.new(0.45, 0.95),
+		NumberSequenceKeypoint.new(1, 0.75),
+	}))
+	local function tintGlows(color)
+		glowA.BackgroundColor3 = color
+		glowB.BackgroundColor3 = secondaryColor(color)
+	end
+	tintGlows(Theme.Accent)
+	table.insert(themeHooks, tintGlows)
 
 	local top = Frame({ Size = UDim2.new(1, 0, 0, 36), BackgroundTransparency = 1, Parent = main })
 	local title = Label({
@@ -979,6 +1074,7 @@ function Library:CreateWindow(opts)
 		Position = UDim2.fromOffset(8, 44),
 		Size = UDim2.new(0, 150, 1, -52),
 		BackgroundColor3 = Theme.Sidebar,
+		BackgroundTransparency = 0.2,
 		Parent = main,
 	}, { Corner(8), Stroke() })
 
