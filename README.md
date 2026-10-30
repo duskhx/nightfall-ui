@@ -1,35 +1,37 @@
 # NightfallUI
 
-Librería de interfaz oscura con acento morado para Roblox, hecha en Lua (`ModuleScript`).
+Dark UI library with a purple accent for Roblox, written in Lua (`ModuleScript`).
 
-## Uso
+## Usage
 
 ```lua
 local Library = require(game.ReplicatedStorage.NightfallUI)
 
-local Window = Library:CreateWindow({ Title = "Mi menú" })
-local Tab = Window:AddTab("Principal", "General")
-local Section = Tab:AddSection("Opciones")
+local Window = Library:CreateWindow({ Title = "My menu" })
+local Tab = Window:AddTab("Main", "General")
+local Section = Tab:AddSection("Options")
 
-Section:AddToggle({ Name = "Activar", Flag = "enabled", Default = true, Callback = print })
-Section:AddSlider({ Name = "Velocidad", Flag = "speed", Min = 0, Max = 100, Default = 16 })
-Section:AddDropdown({ Name = "Modo", Flag = "mode", Values = { "A", "B" }, Default = "A" })
+Section:AddToggle({ Name = "Enable", Flag = "enabled", Default = true, Callback = print })
+Section:AddSlider({ Name = "Speed", Flag = "speed", Min = 0, Max = 100, Default = 16 })
+Section:AddDropdown({ Name = "Mode", Flag = "mode", Values = { "A", "B" }, Default = "A" })
 
 Window:AddSettingsTab()
 ```
 
-## Controles
+## Controls
 
 `AddToggle`, `AddButton`, `AddSlider`, `AddDropdown`, `AddMultiDropdown`, `AddColorpicker`, `AddKeybind`, `AddTextbox`, `AddLabel`, `AddSeparator`.
 
-Los valores con `Flag` quedan en `Library.Flags[flag]`, y el control en `Library.Options[flag]` (`:SetValue()`, `:OnChanged()`).
+Values with a `Flag` are stored in `Library.Flags[flag]`, and the control itself in `Library.Options[flag]` (`:SetValue()`, `:OnChanged()`).
 
-## Configuraciones
+## Window
+
+- **Top bar:** accent color picker, minimize and close buttons.
+- **Footer:** pick the key that shows or hides the whole interface (default `RightShift`, or set `Library.ToggleKey`).
+- **Watermark:** a small bar showing the title, your Roblox username, FPS and ping. Disable it with `CreateWindow({ Watermark = false })` or from the Settings tab.
+
+## Configs
 
 `Library:SaveConfig(name)`, `LoadConfig`, `DeleteConfig`, `ListConfigs`, `SetAutoload`, `LoadAutoload`.
 
-Por defecto se guardan en memoria. Para guardarlas en otro sitio (DataStore, archivos, etc.) reemplaza `Library.Storage` con `{ Write, Read, Delete, List }`.
-
-## Teclas
-
-`RightShift` muestra u oculta el menú (se cambia en la pestaña Ajustes o con `Library.ToggleKey`).
+Configs are kept in memory by default. To store them somewhere else (DataStore, files, etc.), replace `Library.Storage` with `{ Write, Read, Delete, List }`.

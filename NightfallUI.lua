@@ -1,13 +1,13 @@
 --[[
     NightfallUI v1.0.0
-    Librería de interfaz oscura con acento morado para Roblox (ModuleScript).
+    Dark UI library with a purple accent for Roblox (ModuleScript).
 
-    Uso:
+    Usage:
         local Library = require(path.to.NightfallUI)
-        local Window = Library:CreateWindow({ Title = "Mi menú" })
-        local Tab = Window:AddTab("Principal", "General")
-        local Section = Tab:AddSection("Opciones")
-        Section:AddToggle({ Name = "Activar", Flag = "enabled", Callback = print })
+        local Window = Library:CreateWindow({ Title = "My menu" })
+        local Tab = Window:AddTab("Main", "General")
+        local Section = Tab:AddSection("Options")
+        Section:AddToggle({ Name = "Enable", Flag = "enabled", Callback = print })
         Window:AddSettingsTab()
 ]]
 
@@ -15,6 +15,7 @@ local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
 local HttpService = game:GetService("HttpService")
+local RunService = game:GetService("RunService")
 
 local Library = {
 	Version = "1.0.0",
@@ -42,7 +43,7 @@ local connections = {}
 local accentObjects = {}
 local currentGui
 
--- Utilidades ---------------------------------------------------------------
+-- Utilities ---------------------------------------------------------------
 
 local function connect(signal, fn)
 	local c = signal:Connect(fn)
@@ -147,7 +148,7 @@ local function isMove(input)
 		or input.UserInputType == Enum.UserInputType.Touch
 end
 
--- Arrastra sobre `frame` y llama fn(Vector3) con la posición del puntero.
+-- Drags over `frame` and calls fn(Vector3) with the pointer position.
 local function dragger(frame, fn)
 	local dragging = false
 	connect(frame.InputBegan, function(input)
@@ -168,7 +169,7 @@ local function dragger(frame, fn)
 	end)
 end
 
--- Opciones y flags ---------------------------------------------------------
+-- Options and flags ---------------------------------------------------------
 
 local function newOption(opts, type_, value)
 	local obj = { Type = type_, Value = value, Changed = {} }
@@ -192,7 +193,7 @@ local function fire(obj, opts)
 	end
 end
 
--- Almacenamiento de configs (reemplazable con Library.Storage = {...}) ------
+-- Config storage (replaceable with Library.Storage = {...}) ------
 
 local memory = {}
 Library.Storage = {
@@ -288,7 +289,7 @@ function Library:LoadAutoload()
 	return false
 end
 
--- Tema ---------------------------------------------------------------------
+-- Theme ---------------------------------------------------------------------
 
 function Library:SetAccent(color)
 	Theme.Accent = color
@@ -313,7 +314,7 @@ function Library:Unload()
 	end
 end
 
--- Elementos ----------------------------------------------------------------
+-- Elements ----------------------------------------------------------------
 
 local Section = {}
 Section.__index = Section
@@ -536,9 +537,9 @@ local function buildDropdown(self, opts, multi)
 
 	local function render()
 		if multi then
-			header.Text = #obj.Value > 0 and table.concat(obj.Value, ", ") or "Ninguno"
+			header.Text = #obj.Value > 0 and table.concat(obj.Value, ", ") or "None"
 		else
-			header.Text = tostring(obj.Value or "Ninguno")
+			header.Text = tostring(obj.Value or "None")
 		end
 		for value, btn in pairs(buttons) do
 			btn.TextColor3 = selected(value) and Theme.Accent or Theme.TextDim
@@ -623,7 +624,7 @@ function Section:AddKeybind(opts)
 	}, { Corner(), Stroke() })
 
 	local function render()
-		btn.Text = listening and "..." or (obj.Value and obj.Value.Name or "Ninguna")
+		btn.Text = listening and "..." or (obj.Value and obj.Value.Name or "None")
 	end
 
 	function obj:SetValue(v)
@@ -764,7 +765,7 @@ function Section:AddColorpicker(opts)
 	return obj
 end
 
--- Pestañas y ventana -------------------------------------------------------
+-- Tabs and window -------------------------------------------------------
 
 local Tab = {}
 Tab.__index = Tab
@@ -866,27 +867,35 @@ function Window:Toggle(state)
 end
 
 function Window:AddSettingsTab()
-	local tab = self:AddTab("Ajustes", "Sistema")
+	local tab = self:AddTab("Settings", "System")
 
-	local menu = tab:AddSection("Menú")
+	local menu = tab:AddSection("Menu")
+	menu:AddToggle({
+		Name = "Show watermark",
+		Flag = "__watermark",
+		Default = self.Watermark.Visible,
+		Callback = function(on)
+			self.Watermark.Visible = on
+		end,
+	})
 	menu:AddButton({
-		Name = "Descargar interfaz",
+		Name = "Unload interface",
 		Callback = function()
 			Library:Unload()
 		end,
 	})
 
-	local configs = tab:AddSection("Configuraciones")
-	local nameBox = configs:AddTextbox({ Name = "Nombre", Placeholder = "mi-config" })
+	local configs = tab:AddSection("Configs")
+	local nameBox = configs:AddTextbox({ Name = "Name", Placeholder = "my-config" })
 	nameBox.NoSave = true
-	local list = configs:AddDropdown({ Name = "Guardadas", Values = Library:ListConfigs() })
+	local list = configs:AddDropdown({ Name = "Saved", Values = Library:ListConfigs() })
 	list.NoSave = true
 
 	local function refresh()
 		list:SetValues(Library:ListConfigs())
 	end
 	configs:AddButton({
-		Name = "Guardar",
+		Name = "Save",
 		Callback = function()
 			if Library:SaveConfig(nameBox.Value) then
 				refresh()
@@ -894,7 +903,7 @@ function Window:AddSettingsTab()
 		end,
 	})
 	configs:AddButton({
-		Name = "Cargar",
+		Name = "Load",
 		Callback = function()
 			if list.Value then
 				Library:LoadConfig(list.Value)
@@ -902,7 +911,7 @@ function Window:AddSettingsTab()
 		end,
 	})
 	configs:AddButton({
-		Name = "Eliminar",
+		Name = "Delete",
 		Callback = function()
 			if list.Value then
 				Library:DeleteConfig(list.Value)
@@ -911,7 +920,7 @@ function Window:AddSettingsTab()
 		end,
 	})
 	configs:AddButton({
-		Name = "Usar como autocarga",
+		Name = "Use as autoload",
 		Callback = function()
 			if list.Value then
 				Library:SetAutoload(list.Value)
@@ -955,7 +964,7 @@ function Library:CreateWindow(opts)
 	accent(title, "TextColor3")
 	Frame({ Position = UDim2.new(0, 0, 1, -1), Size = UDim2.new(1, 0, 0, 1), BackgroundColor3 = Theme.Outline, Parent = top })
 
-	-- Arrastrar ventana
+	-- Window dragging
 	local dragStart, startPos
 	connect(top.InputBegan, function(input)
 		if isPress(input) then
@@ -989,7 +998,7 @@ function Library:CreateWindow(opts)
 		Font = FONT,
 		TextSize = 12,
 		TextColor3 = Theme.Text,
-		PlaceholderText = "Buscar...",
+		PlaceholderText = "Search...",
 		PlaceholderColor3 = Theme.TextDim,
 		ClearTextOnFocus = false,
 		Text = "",
@@ -1024,7 +1033,44 @@ function Library:CreateWindow(opts)
 		LastCategory = nil,
 	}, Window)
 
-	-- Barra inferior: elegir la tecla que muestra u oculta toda la interfaz
+	-- Watermark: title | Roblox username | FPS | ping
+	local player = Players.LocalPlayer
+	local wmTitle = opts.Title or "NightfallUI"
+	local wmStroke = Stroke(Theme.Accent)
+	accent(wmStroke, "Color")
+	local watermark = Frame({
+		Position = UDim2.fromOffset(12, 12),
+		Size = UDim2.fromOffset(0, 26),
+		AutomaticSize = Enum.AutomaticSize.X,
+		BackgroundColor3 = Theme.Background,
+		Visible = opts.Watermark ~= false,
+		Parent = gui,
+	}, { Corner(6), wmStroke, Padding(10, 0) })
+	local wmText = Label({
+		Size = UDim2.fromOffset(0, 26),
+		AutomaticSize = Enum.AutomaticSize.X,
+		Text = string.format("%s | %s", wmTitle, player.Name),
+		TextSize = 12,
+		Parent = watermark,
+	})
+	window.Watermark = watermark
+
+	local frames, elapsed = 0, 0
+	connect(RunService.RenderStepped, function(dt)
+		frames += 1
+		elapsed += dt
+		if elapsed < 0.5 then
+			return
+		end
+		local fps = math.floor(frames / elapsed + 0.5)
+		local okPing, ping = pcall(function()
+			return math.floor(player:GetNetworkPing() * 1000 + 0.5)
+		end)
+		wmText.Text = string.format("%s | %s | %d FPS | %d ms", wmTitle, player.Name, fps, okPing and ping or 0)
+		frames, elapsed = 0, 0
+	end)
+
+	-- Footer: pick the key that shows or hides the whole interface
 	local footer = Frame({
 		AnchorPoint = Vector2.new(0, 1),
 		Position = UDim2.new(0, 8, 1, -8),
@@ -1035,7 +1081,7 @@ function Library:CreateWindow(opts)
 	Label({
 		Position = UDim2.fromOffset(12, 0),
 		Size = UDim2.new(1, -150, 1, 0),
-		Text = "Tecla para mostrar / ocultar la interfaz",
+		Text = "Key to show / hide the interface",
 		TextColor3 = Theme.TextDim,
 		TextSize = 12,
 		Parent = footer,
@@ -1053,7 +1099,7 @@ function Library:CreateWindow(opts)
 	accent(keyBtn, "TextColor3")
 
 	local function renderKey()
-		keyBtn.Text = window.Listening and "Presiona una tecla..." or ("Tecla: " .. Library.ToggleKey.Name)
+		keyBtn.Text = window.Listening and "Press a key..." or ("Key: " .. Library.ToggleKey.Name)
 	end
 	renderKey()
 	connect(keyBtn.MouseButton1Click, function()
@@ -1072,7 +1118,7 @@ function Library:CreateWindow(opts)
 		end
 	end)
 
-	-- Botones de la barra superior: color, minimizar y cerrar
+	-- Top bar buttons: color, minimize and close
 	local fullSize = main.Size
 	local function topButton(text, offset)
 		return Button({
@@ -1107,12 +1153,12 @@ function Library:CreateWindow(opts)
 		Parent = main,
 	}, { Corner(8), Stroke(), Padding(10, 6), List(4) })
 	local popupSection = setmetatable({ Body = popup, Window = window }, Section)
-	local accentPicker = popupSection:AddColorpicker({ Name = "Color de acento", Flag = "__accent", Default = Theme.Accent })
+	local accentPicker = popupSection:AddColorpicker({ Name = "Accent color", Flag = "__accent", Default = Theme.Accent })
 	accentPicker.NoSave = true
 	accentPicker:OnChanged(function(c)
 		Library:SetAccent(c)
 	end)
-	table.remove(window.Elements) -- el buscador no debe ocultar este selector
+	table.remove(window.Elements) -- search must not hide this picker
 
 	for _, b in ipairs({ closeBtn, minBtn, colorBtn }) do
 		connect(b.MouseEnter, function()
