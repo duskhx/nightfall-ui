@@ -41,7 +41,6 @@ local Theme = Library.Theme
 
 local connections = {}
 local accentObjects = {}
-local themeHooks = {}
 local currentGui
 
 -- Utilities ---------------------------------------------------------------
@@ -150,23 +149,33 @@ local function isMove(input)
 end
 
 -- Drags over `frame` and calls fn(Vector3) with the pointer position.
+-- The global move/end listeners exist only while a drag is active, so idle controls cost nothing.
+-- fn receives a second argument that is true on the first call of a drag.
 local function dragger(frame, fn)
-	local dragging = false
+	local moveConn, endConn
+	local function stop()
+		if moveConn then
+			moveConn:Disconnect()
+			endConn:Disconnect()
+			moveConn, endConn = nil, nil
+		end
+	end
 	connect(frame.InputBegan, function(input)
-		if isPress(input) then
-			dragging = true
-			fn(input.Position)
+		if not isPress(input) then
+			return
 		end
-	end)
-	connect(UserInputService.InputChanged, function(input)
-		if dragging and isMove(input) then
-			fn(input.Position)
-		end
-	end)
-	connect(UserInputService.InputEnded, function(input)
-		if isPress(input) then
-			dragging = false
-		end
+		stop()
+		fn(input.Position, true)
+		moveConn = UserInputService.InputChanged:Connect(function(moved)
+			if isMove(moved) then
+				fn(moved.Position, false)
+			end
+		end)
+		endConn = UserInputService.InputEnded:Connect(function(ended)
+			if isPress(ended) then
+				stop()
+			end
+		end)
 	end)
 end
 
@@ -309,11 +318,6 @@ local function deriveTheme(color)
 	}
 end
 
-local function secondaryColor(color)
-	local h, s = color:ToHSV()
-	return Color3.fromHSV((h + 0.12) % 1, math.max(s, 0.6), 1)
-end
-
 -- Swaps every instance color that still holds an old theme color for the new one.
 local function recolor(new)
 	if not currentGui then
@@ -346,7 +350,7 @@ local function recolor(new)
 	end
 end
 
-function Library:SetAccent(color)
+local function applyAccent(color)
 	local new = deriveTheme(color)
 	recolor(new)
 	for key, value in pairs(new) do
@@ -357,9 +361,23 @@ function Library:SetAccent(color)
 			entry[1][entry[2]] = color
 		end
 	end
-	for _, hook in ipairs(themeHooks) do
-		hook(color)
+end
+
+-- Dragging the color picker fires dozens of changes per second; apply only the latest every 0.1s.
+local pendingAccent
+function Library:SetAccent(color)
+	local scheduled = pendingAccent ~= nil
+	pendingAccent = color
+	if scheduled then
+		return
 	end
+	task.delay(0.1, function()
+		local latest = pendingAccent
+		pendingAccent = nil
+		if latest and currentGui then
+			applyAccent(latest)
+		end
+	end)
 end
 
 function Library:Unload()
@@ -368,7 +386,6 @@ function Library:Unload()
 	end
 	table.clear(connections)
 	table.clear(accentObjects)
-	table.clear(themeHooks)
 	table.clear(Library.Flags)
 	table.clear(Library.Options)
 	if currentGui then
@@ -838,7 +855,6 @@ function Tab:AddSection(name)
 		Size = UDim2.new(1, 0, 0, 0),
 		AutomaticSize = Enum.AutomaticSize.Y,
 		BackgroundColor3 = Theme.Sidebar,
-		BackgroundTransparency = 0.2,
 		Parent = self.Page,
 	}, { Corner(8), Stroke(), Padding(12, 10), List(8) })
 
@@ -1011,33 +1027,10 @@ function Library:CreateWindow(opts)
 		Parent = gui,
 	}, { Corner(10) })
 
-	-- Neon edge and two soft gradient glows that follow the accent color
+	-- Neon edge that follows the accent color
 	local edge = Stroke(Theme.Accent, 1.5)
 	edge.Parent = main
 	accent(edge, "Color")
-	local function glow(transparency)
-		return Frame({
-			Size = UDim2.fromScale(1, 1),
-			BackgroundColor3 = Theme.Accent,
-			Parent = main,
-		}, { Corner(10), New("UIGradient", { Rotation = 45, Transparency = transparency }) })
-	end
-	local glowA = glow(NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 0.72),
-		NumberSequenceKeypoint.new(0.55, 0.95),
-		NumberSequenceKeypoint.new(1, 1),
-	}))
-	local glowB = glow(NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 1),
-		NumberSequenceKeypoint.new(0.45, 0.95),
-		NumberSequenceKeypoint.new(1, 0.75),
-	}))
-	local function tintGlows(color)
-		glowA.BackgroundColor3 = color
-		glowB.BackgroundColor3 = secondaryColor(color)
-	end
-	tintGlows(Theme.Accent)
-	table.insert(themeHooks, tintGlows)
 
 	local top = Frame({ Size = UDim2.new(1, 0, 0, 36), BackgroundTransparency = 1, Parent = main })
 	local title = Label({
@@ -1053,28 +1046,19 @@ function Library:CreateWindow(opts)
 
 	-- Window dragging
 	local dragStart, startPos
-	connect(top.InputBegan, function(input)
-		if isPress(input) then
-			dragStart, startPos = input.Position, main.Position
+	dragger(top, function(pos, began)
+		if began then
+			dragStart, startPos = pos, main.Position
+			return
 		end
-	end)
-	connect(UserInputService.InputChanged, function(input)
-		if dragStart and isMove(input) then
-			local d = input.Position - dragStart
-			main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
-		end
-	end)
-	connect(UserInputService.InputEnded, function(input)
-		if isPress(input) then
-			dragStart = nil
-		end
+		local d = pos - dragStart
+		main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
 	end)
 
 	local sidebar = Frame({
 		Position = UDim2.fromOffset(8, 44),
 		Size = UDim2.new(0, 150, 1, -52),
 		BackgroundColor3 = Theme.Sidebar,
-		BackgroundTransparency = 0.2,
 		Parent = main,
 	}, { Corner(8), Stroke() })
 
@@ -1168,10 +1152,14 @@ function Library:CreateWindow(opts)
 	})
 
 	local frames, elapsed = 0, 0
-	connect(RunService.RenderStepped, function(dt)
+	connect(RunService.Heartbeat, function(dt)
+		if not main.Visible or window.Minimized then
+			frames, elapsed = 0, 0
+			return
+		end
 		frames += 1
 		elapsed += dt
-		if elapsed < 0.5 then
+		if elapsed < 1 then
 			return
 		end
 		local fps = math.floor(frames / elapsed + 0.5)
