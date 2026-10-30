@@ -1022,7 +1022,7 @@ function Library:CreateWindow(opts)
 	local main = Frame({
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.5),
-		Size = opts.Size or UDim2.fromOffset(450, 330),
+		Size = opts.Size or UDim2.fromOffset(380, 280),
 		BackgroundColor3 = Theme.Background,
 		Parent = gui,
 	}, { Corner(10) })
@@ -1204,6 +1204,40 @@ function Library:CreateWindow(opts)
 
 	-- Top bar buttons: color, minimize and close
 	local fullSize = main.Size
+
+	-- Resize corner: drag to grow or shrink the window (top-left stays in place)
+	local resizeHandle = Frame({
+		AnchorPoint = Vector2.new(1, 1),
+		Position = UDim2.new(1, -3, 1, -3),
+		Size = UDim2.fromOffset(16, 16),
+		BackgroundTransparency = 1,
+		Active = true,
+		ZIndex = 5,
+		Parent = main,
+	})
+	for _, bar in ipairs({
+		{ UDim2.new(1, 0, 0, 3), UDim2.new(0, 0, 1, -3) },
+		{ UDim2.new(0, 3, 1, 0), UDim2.new(1, -3, 0, 0) },
+	}) do
+		accent(Frame({ Size = bar[1], Position = bar[2], ZIndex = 5, Parent = resizeHandle }, { Corner(2) }), "BackgroundColor3")
+	end
+	local resizeStart, startSize, startPos
+	dragger(resizeHandle, function(pos, began)
+		if began then
+			resizeStart, startSize, startPos = pos, main.AbsoluteSize, main.Position
+			return
+		end
+		local w = math.clamp(startSize.X + pos.X - resizeStart.X, 340, 900)
+		local h = math.clamp(startSize.Y + pos.Y - resizeStart.Y, 240, 700)
+		fullSize = UDim2.fromOffset(w, h)
+		main.Size = fullSize
+		main.Position = UDim2.new(
+			startPos.X.Scale,
+			startPos.X.Offset + (w - startSize.X) / 2,
+			startPos.Y.Scale,
+			startPos.Y.Offset + (h - startSize.Y) / 2
+		)
+	end)
 	local function topButton(text, offset)
 		return Button({
 			AnchorPoint = Vector2.new(1, 0.5),
@@ -1260,6 +1294,7 @@ function Library:CreateWindow(opts)
 		popup.Visible = false
 		sidebar.Visible = not window.Minimized
 		content.Visible = not window.Minimized
+		resizeHandle.Visible = not window.Minimized
 		main.Size = window.Minimized and UDim2.new(fullSize.X.Scale, fullSize.X.Offset, 0, 36) or fullSize
 	end)
 	connect(closeBtn.MouseButton1Click, function()
