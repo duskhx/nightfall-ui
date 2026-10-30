@@ -1022,7 +1022,7 @@ function Library:CreateWindow(opts)
 	local main = Frame({
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.5),
-		Size = opts.Size or UDim2.fromOffset(380, 280),
+		Size = opts.Size or UDim2.fromOffset(150, 150),
 		BackgroundColor3 = Theme.Background,
 		Parent = gui,
 	}, { Corner(10) })
@@ -1227,8 +1227,8 @@ function Library:CreateWindow(opts)
 			resizeStart, startSize, startPos = pos, main.AbsoluteSize, main.Position
 			return
 		end
-		local w = math.clamp(startSize.X + pos.X - resizeStart.X, 340, 900)
-		local h = math.clamp(startSize.Y + pos.Y - resizeStart.Y, 240, 700)
+		local w = math.clamp(startSize.X + pos.X - resizeStart.X, 100, 900)
+		local h = math.clamp(startSize.Y + pos.Y - resizeStart.Y, 100, 700)
 		fullSize = UDim2.fromOffset(w, h)
 		main.Size = fullSize
 		main.Position = UDim2.new(
