@@ -26,6 +26,7 @@ Values with a `Flag` are stored in `Library.Flags[flag]`, and the control itself
 
 ## Window
 
+- **Size:** the whole window is scaled to 75% by default. Change it with `CreateWindow({ Scale = 0.6 })` (1 = original size).
 - **Top bar:** accent color picker, minimize and close buttons.
 - **Profile card (bottom of the sidebar):** your Roblox avatar, username, FPS and ping.
 - **Menu key button (same card):** pick the key that shows or hides the whole interface (default `RightShift`, or set `Library.ToggleKey`).

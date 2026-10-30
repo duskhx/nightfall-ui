@@ -1025,7 +1025,7 @@ function Library:CreateWindow(opts)
 		Size = opts.Size or UDim2.fromOffset(580, 420),
 		BackgroundColor3 = Theme.Background,
 		Parent = gui,
-	}, { Corner(10) })
+	}, { Corner(10), New("UIScale", { Scale = opts.Scale or 0.75 }) })
 
 	-- Neon edge that follows the accent color
 	local edge = Stroke(Theme.Accent, 1.5)
