@@ -869,11 +869,6 @@ function Window:AddSettingsTab()
 	local tab = self:AddTab("Ajustes", "Sistema")
 
 	local menu = tab:AddSection("Menú")
-	local key = menu:AddKeybind({ Name = "Tecla del menú", Flag = "__menukey", Default = Library.ToggleKey })
-	key.NoSave = true
-	key:OnChanged(function(k)
-		Library.ToggleKey = k or Library.ToggleKey
-	end)
 	menu:AddButton({
 		Name = "Descargar interfaz",
 		Callback = function()
@@ -981,7 +976,7 @@ function Library:CreateWindow(opts)
 
 	local sidebar = Frame({
 		Position = UDim2.fromOffset(8, 44),
-		Size = UDim2.new(0, 150, 1, -52),
+		Size = UDim2.new(0, 150, 1, -80),
 		BackgroundColor3 = Theme.Sidebar,
 		Parent = main,
 	}, { Corner(8), Stroke() })
@@ -1014,7 +1009,7 @@ function Library:CreateWindow(opts)
 
 	local content = Frame({
 		Position = UDim2.fromOffset(166, 44),
-		Size = UDim2.new(1, -174, 1, -52),
+		Size = UDim2.new(1, -174, 1, -80),
 		BackgroundTransparency = 1,
 		Parent = main,
 	})
@@ -1028,6 +1023,54 @@ function Library:CreateWindow(opts)
 		Elements = {},
 		LastCategory = nil,
 	}, Window)
+
+	-- Barra inferior: elegir la tecla que muestra u oculta toda la interfaz
+	local footer = Frame({
+		AnchorPoint = Vector2.new(0, 1),
+		Position = UDim2.new(0, 8, 1, -8),
+		Size = UDim2.new(1, -16, 0, 28),
+		BackgroundColor3 = Theme.Sidebar,
+		Parent = main,
+	}, { Corner(8), Stroke() })
+	Label({
+		Position = UDim2.fromOffset(12, 0),
+		Size = UDim2.new(1, -150, 1, 0),
+		Text = "Tecla para mostrar / ocultar la interfaz",
+		TextColor3 = Theme.TextDim,
+		TextSize = 12,
+		Parent = footer,
+	})
+	local keyBtn = Button({
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -6, 0.5, 0),
+		Size = UDim2.fromOffset(110, 20),
+		BackgroundColor3 = Theme.Element,
+		TextColor3 = Theme.Accent,
+		Font = FONT_BOLD,
+		TextSize = 12,
+		Parent = footer,
+	}, { Corner(5), Stroke() })
+	accent(keyBtn, "TextColor3")
+
+	local function renderKey()
+		keyBtn.Text = window.Listening and "Presiona una tecla..." or ("Tecla: " .. Library.ToggleKey.Name)
+	end
+	renderKey()
+	connect(keyBtn.MouseButton1Click, function()
+		window.Listening = true
+		renderKey()
+	end)
+	connect(UserInputService.InputBegan, function(input)
+		if window.Listening and input.UserInputType == Enum.UserInputType.Keyboard then
+			if input.KeyCode ~= Enum.KeyCode.Escape then
+				Library.ToggleKey = input.KeyCode
+			end
+			task.defer(function()
+				window.Listening = nil
+				renderKey()
+			end)
+		end
+	end)
 
 	-- Botones de la barra superior: color, minimizar y cerrar
 	local fullSize = main.Size
@@ -1087,6 +1130,7 @@ function Library:CreateWindow(opts)
 		popup.Visible = false
 		sidebar.Visible = not window.Minimized
 		content.Visible = not window.Minimized
+		footer.Visible = not window.Minimized
 		main.Size = window.Minimized and UDim2.new(fullSize.X.Scale, fullSize.X.Offset, 0, 36) or fullSize
 	end)
 	connect(closeBtn.MouseButton1Click, function()
@@ -1101,7 +1145,7 @@ function Library:CreateWindow(opts)
 	end)
 
 	connect(UserInputService.InputBegan, function(input, processed)
-		if not processed and input.KeyCode == Library.ToggleKey then
+		if not processed and not window.Listening and input.KeyCode == Library.ToggleKey then
 			window:Toggle()
 		end
 	end)
