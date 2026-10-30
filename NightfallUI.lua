@@ -1022,7 +1022,7 @@ function Library:CreateWindow(opts)
 	local main = Frame({
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.5),
-		Size = opts.Size or UDim2.fromOffset(150, 150),
+		Size = opts.Size or UDim2.fromOffset(220, 220),
 		BackgroundColor3 = Theme.Background,
 		Parent = gui,
 	}, { Corner(10) })
