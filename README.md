@@ -27,8 +27,8 @@ Values with a `Flag` are stored in `Library.Flags[flag]`, and the control itself
 ## Window
 
 - **Top bar:** accent color picker, minimize and close buttons.
-- **Footer:** pick the key that shows or hides the whole interface (default `RightShift`, or set `Library.ToggleKey`).
-- **Watermark:** a small bar showing the title, your Roblox username, FPS and ping. Disable it with `CreateWindow({ Watermark = false })` or from the Settings tab.
+- **Profile card (bottom of the sidebar):** your Roblox avatar, username, FPS and ping.
+- **Menu key button (same card):** pick the key that shows or hides the whole interface (default `RightShift`, or set `Library.ToggleKey`).
 
 ## Configs
 

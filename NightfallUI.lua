@@ -870,14 +870,6 @@ function Window:AddSettingsTab()
 	local tab = self:AddTab("Settings", "System")
 
 	local menu = tab:AddSection("Menu")
-	menu:AddToggle({
-		Name = "Show watermark",
-		Flag = "__watermark",
-		Default = self.Watermark.Visible,
-		Callback = function(on)
-			self.Watermark.Visible = on
-		end,
-	})
 	menu:AddButton({
 		Name = "Unload interface",
 		Callback = function()
@@ -985,7 +977,7 @@ function Library:CreateWindow(opts)
 
 	local sidebar = Frame({
 		Position = UDim2.fromOffset(8, 44),
-		Size = UDim2.new(0, 150, 1, -80),
+		Size = UDim2.new(0, 150, 1, -52),
 		BackgroundColor3 = Theme.Sidebar,
 		Parent = main,
 	}, { Corner(8), Stroke() })
@@ -1007,7 +999,7 @@ function Library:CreateWindow(opts)
 
 	local tabList = New("ScrollingFrame", {
 		Position = UDim2.fromOffset(8, 42),
-		Size = UDim2.new(1, -16, 1, -50),
+		Size = UDim2.new(1, -16, 1, -142),
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		ScrollBarThickness = 0,
@@ -1018,7 +1010,7 @@ function Library:CreateWindow(opts)
 
 	local content = Frame({
 		Position = UDim2.fromOffset(166, 44),
-		Size = UDim2.new(1, -174, 1, -80),
+		Size = UDim2.new(1, -174, 1, -52),
 		BackgroundTransparency = 1,
 		Parent = main,
 	})
@@ -1033,27 +1025,51 @@ function Library:CreateWindow(opts)
 		LastCategory = nil,
 	}, Window)
 
-	-- Watermark: title | Roblox username | FPS | ping
+	-- Profile card (bottom of the sidebar): avatar, Roblox username, FPS / ping and menu key
 	local player = Players.LocalPlayer
-	local wmTitle = opts.Title or "NightfallUI"
-	local wmStroke = Stroke(Theme.Accent)
-	accent(wmStroke, "Color")
-	local watermark = Frame({
-		Position = UDim2.fromOffset(12, 12),
-		Size = UDim2.fromOffset(0, 26),
-		AutomaticSize = Enum.AutomaticSize.X,
+	local card = Frame({
+		AnchorPoint = Vector2.new(0, 1),
+		Position = UDim2.new(0, 8, 1, -8),
+		Size = UDim2.new(1, -16, 0, 84),
+		BackgroundColor3 = Theme.Element,
+		Parent = sidebar,
+	}, { Corner(8), Stroke() })
+	local avatar = New("ImageLabel", {
+		Position = UDim2.fromOffset(8, 8),
+		Size = UDim2.fromOffset(34, 34),
 		BackgroundColor3 = Theme.Background,
-		Visible = opts.Watermark ~= false,
-		Parent = gui,
-	}, { Corner(6), wmStroke, Padding(10, 0) })
-	local wmText = Label({
-		Size = UDim2.fromOffset(0, 26),
-		AutomaticSize = Enum.AutomaticSize.X,
-		Text = string.format("%s | %s", wmTitle, player.Name),
+		BorderSizePixel = 0,
+		Parent = card,
+	}, { Corner(17) })
+	task.spawn(function()
+		local ok, image = pcall(
+			Players.GetUserThumbnailAsync,
+			Players,
+			player.UserId,
+			Enum.ThumbnailType.HeadShot,
+			Enum.ThumbnailSize.Size48x48
+		)
+		if ok and avatar.Parent then
+			avatar.Image = image
+		end
+	end)
+	Label({
+		Position = UDim2.fromOffset(48, 8),
+		Size = UDim2.new(1, -54, 0, 16),
+		Text = player.Name,
+		Font = FONT_BOLD,
 		TextSize = 12,
-		Parent = watermark,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		Parent = card,
 	})
-	window.Watermark = watermark
+	local stats = Label({
+		Position = UDim2.fromOffset(48, 26),
+		Size = UDim2.new(1, -54, 0, 14),
+		Text = "-- FPS | -- ms",
+		TextColor3 = Theme.TextDim,
+		TextSize = 11,
+		Parent = card,
+	})
 
 	local frames, elapsed = 0, 0
 	connect(RunService.RenderStepped, function(dt)
@@ -1066,35 +1082,19 @@ function Library:CreateWindow(opts)
 		local okPing, ping = pcall(function()
 			return math.floor(player:GetNetworkPing() * 1000 + 0.5)
 		end)
-		wmText.Text = string.format("%s | %s | %d FPS | %d ms", wmTitle, player.Name, fps, okPing and ping or 0)
+		stats.Text = string.format("%d FPS | %d ms", fps, okPing and ping or 0)
 		frames, elapsed = 0, 0
 	end)
 
-	-- Footer: pick the key that shows or hides the whole interface
-	local footer = Frame({
-		AnchorPoint = Vector2.new(0, 1),
-		Position = UDim2.new(0, 8, 1, -8),
-		Size = UDim2.new(1, -16, 0, 28),
-		BackgroundColor3 = Theme.Sidebar,
-		Parent = main,
-	}, { Corner(8), Stroke() })
-	Label({
-		Position = UDim2.fromOffset(12, 0),
-		Size = UDim2.new(1, -150, 1, 0),
-		Text = "Key to show / hide the interface",
-		TextColor3 = Theme.TextDim,
-		TextSize = 12,
-		Parent = footer,
-	})
+	-- Key button: picks the key that shows or hides the whole interface
 	local keyBtn = Button({
-		AnchorPoint = Vector2.new(1, 0.5),
-		Position = UDim2.new(1, -6, 0.5, 0),
-		Size = UDim2.fromOffset(110, 20),
-		BackgroundColor3 = Theme.Element,
+		Position = UDim2.fromOffset(8, 50),
+		Size = UDim2.new(1, -16, 0, 26),
+		BackgroundColor3 = Theme.Sidebar,
 		TextColor3 = Theme.Accent,
 		Font = FONT_BOLD,
-		TextSize = 12,
-		Parent = footer,
+		TextSize = 11,
+		Parent = card,
 	}, { Corner(5), Stroke() })
 	accent(keyBtn, "TextColor3")
 
@@ -1176,7 +1176,6 @@ function Library:CreateWindow(opts)
 		popup.Visible = false
 		sidebar.Visible = not window.Minimized
 		content.Visible = not window.Minimized
-		footer.Visible = not window.Minimized
 		main.Size = window.Minimized and UDim2.new(fullSize.X.Scale, fullSize.X.Offset, 0, 36) or fullSize
 	end)
 	connect(closeBtn.MouseButton1Click, function()
