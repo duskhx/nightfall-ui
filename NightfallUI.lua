@@ -1,14 +1,19 @@
 --[[
-    NightfallUI v1.0.0
+    NightfallUI v1.1.0
     Dark UI library with a purple accent for Roblox (ModuleScript).
 
     Usage:
         local Library = require(path.to.NightfallUI)
         local Window = Library:CreateWindow({ Title = "My menu" })
-        local Tab = Window:AddTab("Main", "General")
-        local Section = Tab:AddSection("Options")
+        local Tab = Window:AddTab("Main", "General")           -- optional 3rd argument: icon
+        local Section = Tab:AddSection("Options")              -- optional 2nd argument: start collapsed
         Section:AddToggle({ Name = "Enable", Flag = "enabled", Callback = print })
         Window:AddSettingsTab()
+        Library:Notify("Hello")
+
+    Performance notes: nothing in the UI runs per frame except one Heartbeat counter that
+    updates the FPS/ping text once per second (and sleeps while the window is hidden,
+    minimized or compact). Every animation is a one-shot tween.
 ]]
 
 local Players = game:GetService("Players")
@@ -18,10 +23,18 @@ local HttpService = game:GetService("HttpService")
 local RunService = game:GetService("RunService")
 
 local Library = {
-	Version = "1.0.0",
+	Version = "1.1.0",
 	Flags = {},
 	Options = {},
 	ToggleKey = Enum.KeyCode.RightShift,
+	-- One-click accent colors shown in the top bar color popup (name -> Color3). Edit freely.
+	Presets = {
+		{ "Violet", Color3.fromRGB(139, 92, 246) },
+		{ "Crimson", Color3.fromRGB(239, 68, 68) },
+		{ "Ocean", Color3.fromRGB(59, 130, 246) },
+		{ "Emerald", Color3.fromRGB(16, 185, 129) },
+		{ "Rose", Color3.fromRGB(236, 72, 153) },
+	},
 	Theme = {
 		Background = Color3.fromRGB(16, 16, 22),
 		Sidebar = Color3.fromRGB(20, 20, 28),
@@ -42,6 +55,9 @@ local Theme = Library.Theme
 local connections = {}
 local accentObjects = {}
 local currentGui
+local currentWindow
+local notifyHolder
+local activeToasts = 0
 
 -- Utilities ---------------------------------------------------------------
 
@@ -337,6 +353,9 @@ local function recolor(new)
 			swap(inst, "Color")
 		elseif inst:IsA("GuiObject") then
 			swap(inst, "BackgroundColor3")
+			if inst:IsA("ImageLabel") then
+				swap(inst, "ImageColor3")
+			end
 			if inst:IsA("TextLabel") or inst:IsA("TextButton") or inst:IsA("TextBox") then
 				swap(inst, "TextColor3")
 			end
@@ -360,6 +379,9 @@ local function applyAccent(color)
 		if entry[1].Parent then
 			entry[1][entry[2]] = color
 		end
+	end
+	if currentWindow then
+		currentWindow:SelectTab(currentWindow.ActiveTab, true)
 	end
 end
 
@@ -392,6 +414,52 @@ function Library:Unload()
 		currentGui:Destroy()
 		currentGui = nil
 	end
+	currentWindow = nil
+	notifyHolder = nil
+	activeToasts = 0
+end
+
+-- Small toast in the bottom right corner. Created on demand, one tween in, one tween out, then destroyed.
+function Library:Notify(text, duration)
+	if not notifyHolder or activeToasts >= 5 then
+		return
+	end
+	activeToasts += 1
+
+	local slot = Frame({
+		Size = UDim2.new(1, 0, 0, 32),
+		BackgroundTransparency = 1,
+		Parent = notifyHolder,
+	})
+	local toast = Frame({
+		Position = UDim2.new(1, 40, 0, 0),
+		Size = UDim2.fromScale(1, 1),
+		BackgroundColor3 = Theme.Element,
+		Parent = slot,
+	}, { Corner(6), Stroke() })
+	local bar = Frame({ Size = UDim2.new(0, 3, 1, -10), Position = UDim2.fromOffset(6, 5), Parent = toast }, { Corner(2) })
+	accent(bar, "BackgroundColor3")
+	Label({
+		Position = UDim2.fromOffset(18, 0),
+		Size = UDim2.new(1, -24, 1, 0),
+		Text = tostring(text),
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		Parent = toast,
+	})
+
+	tween(toast, { Position = UDim2.new(0, 0, 0, 0) }, 0.2)
+	task.delay(duration or 3, function()
+		if not slot.Parent then
+			return
+		end
+		tween(toast, { Position = UDim2.new(1, 40, 0, 0) }, 0.2)
+		task.delay(0.25, function()
+			if slot.Parent then
+				slot:Destroy()
+				activeToasts = math.max(0, activeToasts - 1)
+			end
+		end)
+	end)
 end
 
 -- Elements ----------------------------------------------------------------
@@ -497,14 +565,17 @@ function Section:AddSlider(opts)
 	local obj = newOption(opts, "Slider", math.clamp(opts.Default or min, min, max))
 
 	Label({ Size = UDim2.new(1, -60, 0, 18), Text = opts.Name, Parent = frame })
+	-- Value shown in a small pill that grows with the text
 	local valueLabel = Label({
 		AnchorPoint = Vector2.new(1, 0),
 		Position = UDim2.new(1, 0, 0, 0),
-		Size = UDim2.fromOffset(60, 18),
-		TextXAlignment = Enum.TextXAlignment.Right,
-		TextColor3 = Theme.TextDim,
+		Size = UDim2.fromOffset(0, 18),
+		AutomaticSize = Enum.AutomaticSize.X,
+		TextXAlignment = Enum.TextXAlignment.Center,
 		Parent = frame,
-	})
+	}, { Corner(4), Padding(6, 0) })
+	valueLabel.BackgroundTransparency = 0
+	valueLabel.BackgroundColor3 = Theme.Element
 	local bar = Button({
 		Position = UDim2.new(0, 0, 0, 24),
 		Size = UDim2.new(1, 0, 0, 8),
@@ -514,10 +585,23 @@ function Section:AddSlider(opts)
 	}, { Corner(4), Stroke() })
 	local fill = Frame({ Size = UDim2.fromScale(0, 1), Parent = bar }, { Corner(4) })
 	accent(fill, "BackgroundColor3")
+	-- Handle: a single static circle that is only moved from render() while the value changes
+	local handle = Frame({
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0, 0.5),
+		Size = UDim2.fromOffset(12, 12),
+		BackgroundColor3 = Color3.new(1, 1, 1),
+		ZIndex = 2,
+		Parent = bar,
+	}, { Corner(6) })
+	local handleStroke = Stroke(Theme.Accent, 2)
+	handleStroke.Parent = handle
+	accent(handleStroke, "Color")
 
 	local function render()
 		local alpha = (obj.Value - min) / (max - min)
 		fill.Size = UDim2.fromScale(alpha, 1)
+		handle.Position = UDim2.fromScale(alpha, 0.5)
 		valueLabel.Text = tostring(obj.Value) .. (opts.Suffix or "")
 	end
 
@@ -641,7 +725,8 @@ local function buildDropdown(self, opts, multi)
 				Parent = listFrame,
 			}, { Corner(5) })
 			buttons[value] = btn
-			connect(btn.MouseButton1Click, function()
+			-- Not registered in `connections`: the button is destroyed on rebuild, which disconnects it.
+			btn.MouseButton1Click:Connect(function()
 				if multi then
 					local idx = table.find(obj.Value, value)
 					local new = table.clone(obj.Value)
@@ -850,7 +935,7 @@ end
 local Tab = {}
 Tab.__index = Tab
 
-function Tab:AddSection(name)
+function Tab:AddSection(name, collapsed)
 	local holder = Frame({
 		Size = UDim2.new(1, 0, 0, 0),
 		AutomaticSize = Enum.AutomaticSize.Y,
@@ -858,13 +943,38 @@ function Tab:AddSection(name)
 		Parent = self.Page,
 	}, { Corner(8), Stroke(), Padding(12, 10), List(8) })
 
-	Label({
+	-- Header: accent dot, title and a chevron. Click it to collapse the section
+	-- (a hidden body is not rendered, so collapsing also saves a little work).
+	local header = Button({
 		Size = UDim2.new(1, 0, 0, 18),
+		BackgroundTransparency = 1,
+		Text = "",
+		LayoutOrder = -1,
+		Parent = holder,
+	})
+	local dot = Frame({
+		AnchorPoint = Vector2.new(0, 0.5),
+		Position = UDim2.fromScale(0, 0.5),
+		Size = UDim2.fromOffset(6, 6),
+		Parent = header,
+	}, { Corner(3) })
+	accent(dot, "BackgroundColor3")
+	Label({
+		Position = UDim2.fromOffset(14, 0),
+		Size = UDim2.new(1, -34, 1, 0),
 		Text = string.upper(name),
 		Font = FONT_BOLD,
 		TextSize = 12,
-		LayoutOrder = -1,
-		Parent = holder,
+		Parent = header,
+	})
+	local chevron = Label({
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, 0, 0.5, 0),
+		Size = UDim2.fromOffset(16, 16),
+		Text = "v",
+		TextColor3 = Theme.TextDim,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Parent = header,
 	})
 	local body = Frame({
 		Size = UDim2.new(1, 0, 0, 0),
@@ -873,24 +983,84 @@ function Tab:AddSection(name)
 		Parent = holder,
 	}, { List(8) })
 
+	local function setCollapsed(state)
+		body.Visible = not state
+		chevron.Rotation = state and -90 or 0
+	end
+	setCollapsed(collapsed == true)
+	connect(header.MouseButton1Click, function()
+		setCollapsed(body.Visible)
+	end)
+
 	return setmetatable({ Body = body, Window = self.Window }, Section)
 end
 
 local Window = {}
 Window.__index = Window
 
-function Window:AddTab(name, category)
+local SIDEBAR_FULL, SIDEBAR_COMPACT = 150, 44
+
+-- Lays one tab button out for the current mode: full text, or icon / first letter when compact.
+-- Only runs when a tab is added or when the window crosses the compact threshold.
+local function layoutTab(tab, compact)
+	local btn, icon = tab.Button, tab.Icon
+	if compact then
+		btn.Text = icon and "" or string.upper(string.sub(tab.Name, 1, 1))
+		btn.TextXAlignment = Enum.TextXAlignment.Center
+		tab.Pad.PaddingLeft = UDim.new(0, 0)
+		tab.Pad.PaddingRight = UDim.new(0, 0)
+		tab.Indicator.Position = UDim2.fromOffset(0, 5)
+		if icon then
+			icon.AnchorPoint = Vector2.new(0.5, 0.5)
+			icon.Position = UDim2.fromScale(0.5, 0.5)
+		end
+	else
+		local left = icon and 32 or 10
+		btn.Text = tab.Name
+		btn.TextXAlignment = Enum.TextXAlignment.Left
+		tab.Pad.PaddingLeft = UDim.new(0, left)
+		tab.Pad.PaddingRight = UDim.new(0, 10)
+		tab.Indicator.Position = UDim2.fromOffset(-left, 5)
+		if icon then
+			icon.AnchorPoint = Vector2.new(0, 0.5)
+			icon.Position = UDim2.new(0, 10 - left, 0.5, 0)
+		end
+	end
+end
+
+-- icon (optional): an image id string, or { Image = id, Offset = Vector2, Size = Vector2 } to use one cell
+-- of a sprite sheet (a single uploaded image shared by every icon is the cheapest way to load icons).
+function Window:AddTab(name, category, icon)
 	if category and category ~= self.LastCategory then
 		self.LastCategory = category
-		Label({
+		local holder = Frame({
 			Size = UDim2.new(1, 0, 0, 22),
+			BackgroundTransparency = 1,
+			LayoutOrder = #self.Tabs * 2,
+			Visible = not self.Compact,
+			Parent = self.TabList,
+		})
+		Frame({
+			AnchorPoint = Vector2.new(0, 0.5),
+			Position = UDim2.fromScale(0, 0.5),
+			Size = UDim2.new(1, 0, 0, 1),
+			BackgroundColor3 = Theme.Outline,
+			Parent = holder,
+		})
+		-- The label covers the start of the line, so the line only shows to the right of the text
+		local text = Label({
+			Size = UDim2.new(0, 0, 1, 0),
+			AutomaticSize = Enum.AutomaticSize.X,
 			Text = string.upper(category),
 			TextColor3 = Theme.TextDim,
 			TextSize = 11,
 			Font = FONT_BOLD,
-			LayoutOrder = #self.Tabs * 2,
-			Parent = self.TabList,
-		})
+			ZIndex = 2,
+			Parent = holder,
+		}, { Padding(0, 0, 6, 0) })
+		text.BackgroundTransparency = 0
+		text.BackgroundColor3 = Theme.Sidebar
+		table.insert(self.CategoryHolders, holder)
 	end
 
 	local page = New("ScrollingFrame", {
@@ -905,6 +1075,7 @@ function Window:AddTab(name, category)
 		Parent = self.Content,
 	}, { List(10), Padding(2, 2, 6, 2) })
 
+	local pad = Padding(10, 0)
 	local btn = Button({
 		Size = UDim2.new(1, 0, 0, 28),
 		BackgroundColor3 = Theme.Element,
@@ -914,10 +1085,45 @@ function Window:AddTab(name, category)
 		TextXAlignment = Enum.TextXAlignment.Left,
 		LayoutOrder = #self.Tabs * 2 + 1,
 		Parent = self.TabList,
-	}, { Corner(), Padding(10, 0) })
+	}, { Corner(), pad })
 
-	local tab = setmetatable({ Page = page, Button = btn, Window = self }, Tab)
+	-- Accent bar on the left edge, only visible on the selected tab
+	local indicator = Frame({
+		Size = UDim2.new(0, 3, 1, -10),
+		Visible = false,
+		Parent = btn,
+	}, { Corner(2) })
+	accent(indicator, "BackgroundColor3")
+
+	local iconLabel
+	if icon then
+		local props = { Image = icon }
+		if type(icon) == "table" then
+			props = {
+				Image = icon.Image,
+				ImageRectOffset = icon.Offset or Vector2.zero,
+				ImageRectSize = icon.Size or Vector2.zero,
+			}
+		end
+		props.Size = UDim2.fromOffset(16, 16)
+		props.BackgroundTransparency = 1
+		props.BorderSizePixel = 0
+		props.ImageColor3 = Theme.TextDim
+		props.Parent = btn
+		iconLabel = New("ImageLabel", props)
+	end
+
+	local tab = setmetatable({
+		Page = page,
+		Button = btn,
+		Window = self,
+		Name = name,
+		Pad = pad,
+		Indicator = indicator,
+		Icon = iconLabel,
+	}, Tab)
 	table.insert(self.Tabs, tab)
+	layoutTab(tab, self.Compact == true)
 
 	connect(btn.MouseButton1Click, function()
 		self:SelectTab(tab)
@@ -928,14 +1134,49 @@ function Window:AddTab(name, category)
 	return tab
 end
 
-function Window:SelectTab(tab)
+function Window:SelectTab(tab, instant)
+	if not tab then
+		return
+	end
+	self.ActiveTab = tab
 	for _, t in ipairs(self.Tabs) do
 		local active = t == tab
 		t.Page.Visible = active
-		tween(t.Button, {
-			BackgroundTransparency = active and 0 or 1,
-			TextColor3 = active and Theme.Accent or Theme.TextDim,
-		})
+		t.Indicator.Visible = active
+		local button = t.Button
+		local transparency = active and 0 or 1
+		local textColor = active and Theme.Text or Theme.TextDim
+		if instant then
+			button.BackgroundTransparency = transparency
+			button.TextColor3 = textColor
+		else
+			tween(button, { BackgroundTransparency = transparency, TextColor3 = textColor })
+		end
+		if t.Icon then
+			t.Icon.ImageColor3 = active and Theme.Accent or Theme.TextDim
+		end
+	end
+end
+
+-- Switches the sidebar between full width and a narrow icon rail.
+function Window:SetCompact(state)
+	state = state == true
+	if self.Compact == state then
+		return
+	end
+	self.Compact = state
+	self.Sidebar.Size = UDim2.new(0, state and SIDEBAR_COMPACT or SIDEBAR_FULL, 1, -52)
+	self.Content.Position = UDim2.fromOffset(state and 60 or 166, 44)
+	self.Content.Size = UDim2.new(1, state and -68 or -174, 1, -52)
+	self.Search.Visible = not state
+	self.Card.Visible = not state
+	self.TabList.Position = state and UDim2.fromOffset(4, 4) or UDim2.fromOffset(8, 42)
+	self.TabList.Size = state and UDim2.new(1, -8, 1, -8) or UDim2.new(1, -16, 1, -142)
+	for _, holder in ipairs(self.CategoryHolders) do
+		holder.Visible = not state
+	end
+	for _, t in ipairs(self.Tabs) do
+		layoutTab(t, state)
 	end
 end
 
@@ -971,6 +1212,9 @@ function Window:AddSettingsTab()
 		Callback = function()
 			if Library:SaveConfig(nameBox.Value) then
 				refresh()
+				Library:Notify("Config saved: " .. nameBox.Value)
+			else
+				Library:Notify("Enter a config name first")
 			end
 		end,
 	})
@@ -978,7 +1222,9 @@ function Window:AddSettingsTab()
 		Name = "Load",
 		Callback = function()
 			if list.Value then
-				Library:LoadConfig(list.Value)
+				if Library:LoadConfig(list.Value) then
+					Library:Notify("Config loaded: " .. list.Value)
+				end
 			end
 		end,
 	})
@@ -987,6 +1233,7 @@ function Window:AddSettingsTab()
 		Callback = function()
 			if list.Value then
 				Library:DeleteConfig(list.Value)
+				Library:Notify("Config deleted: " .. list.Value)
 				refresh()
 			end
 		end,
@@ -996,6 +1243,7 @@ function Window:AddSettingsTab()
 		Callback = function()
 			if list.Value then
 				Library:SetAutoload(list.Value)
+				Library:Notify("Autoload: " .. list.Value)
 			end
 		end,
 	})
@@ -1099,11 +1347,16 @@ function Library:CreateWindow(opts)
 		Gui = gui,
 		Main = main,
 		Content = content,
+		Sidebar = sidebar,
+		Search = search,
 		TabList = tabList,
 		Tabs = {},
+		CategoryHolders = {},
 		Elements = {},
 		LastCategory = nil,
+		Compact = false,
 	}, Window)
+	currentWindow = window
 
 	-- Profile card (bottom of the sidebar): avatar, Roblox username, FPS / ping and menu key
 	local player = Players.LocalPlayer
@@ -1142,18 +1395,30 @@ function Library:CreateWindow(opts)
 		TextTruncate = Enum.TextTruncate.AtEnd,
 		Parent = card,
 	})
+	window.Card = card
 	local stats = Label({
 		Position = UDim2.fromOffset(48, 26),
 		Size = UDim2.new(1, -54, 0, 14),
 		Text = "-- FPS | -- ms",
 		TextColor3 = Theme.TextDim,
 		TextSize = 11,
+		RichText = true,
 		Parent = card,
 	})
 
+	-- Green / yellow / red hex colors for the FPS and ping readout (computed once, not per update)
+	local GOOD, WARN, BAD = "4ADE80", "FACC15", "F87171"
+	local function fpsColor(fps)
+		return fps >= 50 and GOOD or (fps >= 30 and WARN or BAD)
+	end
+	local function pingColor(ms)
+		return ms <= 80 and GOOD or (ms <= 150 and WARN or BAD)
+	end
+
+	-- Only counts frames while the card is actually visible, and writes the text once per second.
 	local frames, elapsed = 0, 0
 	connect(RunService.Heartbeat, function(dt)
-		if not main.Visible or window.Minimized then
+		if not main.Visible or window.Minimized or window.Compact then
 			frames, elapsed = 0, 0
 			return
 		end
@@ -1166,7 +1431,14 @@ function Library:CreateWindow(opts)
 		local okPing, ping = pcall(function()
 			return math.floor(player:GetNetworkPing() * 1000 + 0.5)
 		end)
-		stats.Text = string.format("%d FPS | %d ms", fps, okPing and ping or 0)
+		ping = okPing and ping or 0
+		stats.Text = string.format(
+			'<font color="#%s">%d FPS</font> | <font color="#%s">%d ms</font>',
+			fpsColor(fps),
+			fps,
+			pingColor(ping),
+			ping
+		)
 		frames, elapsed = 0, 0
 	end)
 
@@ -1205,6 +1477,26 @@ function Library:CreateWindow(opts)
 	-- Top bar buttons: color, minimize and close
 	local fullSize = main.Size
 
+	-- Below this width the sidebar turns into a narrow icon rail (set CompactWidth = 0 to disable)
+	local compactWidth = opts.CompactWidth or 360
+	local startWidth = (opts.Size and opts.Size.X.Offset) or 220
+	window:SetCompact(startWidth < compactWidth)
+
+	-- Toast container (see Library:Notify)
+	notifyHolder = Frame({
+		AnchorPoint = Vector2.new(1, 1),
+		Position = UDim2.new(1, -16, 1, -16),
+		Size = UDim2.new(0, 240, 1, -32),
+		BackgroundTransparency = 1,
+		Parent = gui,
+	}, {
+		New("UIListLayout", {
+			Padding = UDim.new(0, 6),
+			SortOrder = Enum.SortOrder.LayoutOrder,
+			VerticalAlignment = Enum.VerticalAlignment.Bottom,
+		}),
+	})
+
 	-- Resize corner: drag to grow or shrink the window (top-left stays in place)
 	local resizeHandle = Frame({
 		AnchorPoint = Vector2.new(1, 1),
@@ -1227,8 +1519,10 @@ function Library:CreateWindow(opts)
 			resizeStart, startSize, startPos = pos, main.AbsoluteSize, main.Position
 			return
 		end
-		local w = math.clamp(startSize.X + pos.X - resizeStart.X, 100, 900)
-		local h = math.clamp(startSize.Y + pos.Y - resizeStart.Y, 100, 700)
+		local w = math.clamp(startSize.X + pos.X - resizeStart.X, 140, 900)
+		local h = math.clamp(startSize.Y + pos.Y - resizeStart.Y, 120, 700)
+		-- Layout only changes when the width crosses the threshold, not on every pixel of the drag
+		window:SetCompact(w < compactWidth)
 		fullSize = UDim2.fromOffset(w, h)
 		main.Size = fullSize
 		main.Position = UDim2.new(
@@ -1277,6 +1571,32 @@ function Library:CreateWindow(opts)
 		Library:SetAccent(c)
 	end)
 	table.remove(window.Elements) -- search must not hide this picker
+
+	-- One-click accent presets (Library.Presets). Each click just calls the picker, which calls SetAccent.
+	local presetRow = Frame({
+		Size = UDim2.new(1, 0, 0, 22),
+		BackgroundTransparency = 1,
+		LayoutOrder = 10,
+		Parent = popup,
+	}, {
+		New("UIListLayout", {
+			FillDirection = Enum.FillDirection.Horizontal,
+			Padding = UDim.new(0, 6),
+			SortOrder = Enum.SortOrder.LayoutOrder,
+		}),
+	})
+	for i, preset in ipairs(Library.Presets) do
+		local swatch = Button({
+			Size = UDim2.fromOffset(22, 22),
+			BackgroundColor3 = preset[2],
+			Text = "",
+			LayoutOrder = i,
+			Parent = presetRow,
+		}, { Corner(11), Stroke() })
+		connect(swatch.MouseButton1Click, function()
+			accentPicker:SetValue(preset[2])
+		end)
+	end
 
 	for _, b in ipairs({ closeBtn, minBtn, colorBtn }) do
 		connect(b.MouseEnter, function()
