@@ -26,6 +26,8 @@ local Library = {
 	Version = "1.1.0",
 	Flags = {},
 	Options = {},
+	AutoSave = true, -- save every control that has a Flag and restore it the next time
+	Folder = "NightfallUI", -- folder used for saved settings when files are available
 	ToggleKey = Enum.KeyCode.RightShift,
 	-- One-click accent colors shown in the top bar color popup (name -> Color3). Edit freely.
 	Presets = {
@@ -195,6 +197,79 @@ local function dragger(frame, fn)
 	end)
 end
 
+-- Automatic saving ------------------------------------------------------------
+-- Every control with a Flag is saved to the "__autosave" config about a second after it last
+-- changed, and restored the next time the control is created. Because restoring happens when
+-- each control is built, it works no matter in which order you add them.
+
+local AUTOSAVE = "__autosave"
+local savedData -- decoded autosave, loaded once per window
+local queueSave -- assigned below, once encodeOption exists
+local flushSave
+
+local function getSaved()
+	if not savedData then
+		savedData = {}
+		local text = Library.Storage.Read(AUTOSAVE)
+		if text then
+			local ok, data = pcall(HttpService.JSONDecode, HttpService, text)
+			if ok and type(data) == "table" then
+				savedData = data
+			end
+		end
+	end
+	return savedData
+end
+
+-- Checks a saved value against the control that wants it, so a damaged or outdated file can't break the UI.
+local function sanitize(type_, raw, opts)
+	local rt = type(raw)
+	if type_ == "Toggle" then
+		if rt == "boolean" then
+			return true, raw
+		end
+	elseif type_ == "Slider" then
+		if rt == "number" then
+			return true, math.clamp(raw, opts.Min or 0, opts.Max or 100)
+		end
+	elseif type_ == "Textbox" then
+		if rt == "string" then
+			return true, raw
+		end
+	elseif type_ == "Dropdown" then
+		if (rt == "string" or rt == "number") and (not opts.Values or table.find(opts.Values, raw)) then
+			return true, raw
+		end
+	elseif type_ == "MultiDropdown" then
+		if rt == "table" then
+			local list = {}
+			for _, v in ipairs(raw) do
+				if not opts.Values or table.find(opts.Values, v) then
+					table.insert(list, v)
+				end
+			end
+			return true, list
+		end
+	elseif type_ == "Keybind" then
+		if rt == "string" then
+			if raw == "" then
+				return true, nil
+			end
+			local ok, key = pcall(function()
+				return Enum.KeyCode[raw]
+			end)
+			if ok and key then
+				return true, key
+			end
+		end
+	elseif type_ == "Colorpicker" then
+		if rt == "table" and type(raw[1]) == "number" and type(raw[2]) == "number" and type(raw[3]) == "number" then
+			return true, Color3.new(math.clamp(raw[1], 0, 1), math.clamp(raw[2], 0, 1), math.clamp(raw[3], 0, 1))
+		end
+	end
+	return false
+end
+
 -- Options and flags ---------------------------------------------------------
 
 local function newOption(opts, type_, value)
@@ -203,7 +278,18 @@ local function newOption(opts, type_, value)
 		table.insert(self.Changed, fn)
 	end
 	if opts.Flag then
-		Library.Flags[opts.Flag] = value
+		-- Use the saved value instead of the default, when there is a valid one
+		if not opts.NoSave then
+			local raw = getSaved()[opts.Flag]
+			if raw ~= nil then
+				local valid, restored = sanitize(type_, raw, opts)
+				if valid then
+					obj.Value = restored
+					obj.Restored = true
+				end
+			end
+		end
+		Library.Flags[opts.Flag] = obj.Value
 		Library.Options[opts.Flag] = obj
 	end
 	return obj
@@ -217,12 +303,25 @@ local function fire(obj, opts)
 	for _, fn in ipairs(obj.Changed) do
 		safeCall(fn, obj.Value)
 	end
+	if queueSave then
+		queueSave()
+	end
+end
+
+-- Runs a control's callback once with the value that was restored from the save file
+local function applyRestored(obj, opts)
+	if obj.Restored then
+		obj.Restored = nil
+		fire(obj, opts)
+	end
 end
 
 -- Config storage (replaceable with Library.Storage = {...}) ------
 
+-- Settings are kept in files (folder Library.Folder) when the environment has writefile / readfile,
+-- so they survive between sessions. Otherwise they only live in memory until you replace Library.Storage.
 local memory = {}
-Library.Storage = {
+local memoryStorage = {
 	Write = function(name, text)
 		memory[name] = text
 	end,
@@ -235,7 +334,7 @@ Library.Storage = {
 	List = function()
 		local names = {}
 		for name in pairs(memory) do
-			if name ~= "__autoload" then
+			if string.sub(name, 1, 2) ~= "__" then
 				table.insert(names, name)
 			end
 		end
@@ -243,6 +342,54 @@ Library.Storage = {
 		return names
 	end,
 }
+
+local function filePath(name)
+	return Library.Folder .. "/" .. (string.gsub(name, "[^%w%-_ ]", "")) .. ".json"
+end
+
+local fileStorage = {
+	Write = function(name, text)
+		pcall(function()
+			if type(isfolder) == "function" and type(makefolder) == "function" and not isfolder(Library.Folder) then
+				makefolder(Library.Folder)
+			end
+			writefile(filePath(name), text)
+		end)
+	end,
+	Read = function(name)
+		local ok, text = pcall(function()
+			if isfile(filePath(name)) then
+				return readfile(filePath(name))
+			end
+		end)
+		return ok and text or nil
+	end,
+	Delete = function(name)
+		pcall(function()
+			if type(delfile) == "function" and isfile(filePath(name)) then
+				delfile(filePath(name))
+			end
+		end)
+	end,
+	List = function()
+		local names = {}
+		if type(listfiles) == "function" then
+			local ok, files = pcall(listfiles, Library.Folder)
+			for _, file in ipairs(ok and files or {}) do
+				local base = string.match(file, "([^/\\]+)%.json$")
+				if base and string.sub(base, 1, 2) ~= "__" then
+					table.insert(names, base)
+				end
+			end
+		end
+		table.sort(names)
+		return names
+	end,
+}
+
+local hasFiles = type(writefile) == "function" and type(readfile) == "function" and type(isfile) == "function"
+Library.Persistent = hasFiles
+Library.Storage = hasFiles and fileStorage or memoryStorage
 
 local function encodeOption(opt)
 	local v = opt.Value
@@ -261,6 +408,59 @@ local function decodeOption(opt, v)
 		return v ~= "" and Enum.KeyCode[v] or nil
 	end
 	return v
+end
+
+-- Writes the autosave: everything saved before (so controls not created yet keep their value) plus the current options.
+local function writeAutosave()
+	local data = table.clone(getSaved())
+	for flag, opt in pairs(Library.Options) do
+		if not opt.NoSave then
+			data[flag] = encodeOption(opt)
+		end
+	end
+	savedData = data
+	Library.Storage.Write(AUTOSAVE, HttpService:JSONEncode(data))
+end
+
+-- Debounced: while something keeps changing (a slider or color drag) it waits until it stops for a second,
+-- so there is at most one pending timer and one file write per burst of changes.
+local saveScheduled, lastChange = false, 0
+queueSave = function()
+	if not Library.AutoSave then
+		return
+	end
+	lastChange = os.clock()
+	if saveScheduled then
+		return
+	end
+	saveScheduled = true
+	local function check()
+		if not saveScheduled then
+			return
+		end
+		local remaining = 1 - (os.clock() - lastChange)
+		if remaining > 0.05 then
+			task.delay(remaining, check)
+			return
+		end
+		saveScheduled = false
+		writeAutosave()
+	end
+	task.delay(1, check)
+end
+
+flushSave = function()
+	if saveScheduled then
+		saveScheduled = false
+		writeAutosave()
+	end
+end
+
+-- Deletes the saved settings (the next time the menu opens, everything starts from its defaults)
+function Library:ResetSaved()
+	saveScheduled = false
+	savedData = {}
+	Library.Storage.Delete(AUTOSAVE)
 end
 
 function Library:SaveConfig(name)
@@ -403,6 +603,10 @@ function Library:SetAccent(color)
 end
 
 function Library:Unload()
+	if flushSave then
+		flushSave() -- write any change that is still waiting, before the options are cleared
+	end
+	savedData = nil
 	for _, c in ipairs(connections) do
 		c:Disconnect()
 	end
@@ -618,6 +822,7 @@ function Section:AddSlider(opts)
 		obj:SetValue(min + (max - min) * alpha)
 	end)
 	render()
+	applyRestored(obj, opts)
 	return obj
 end
 
@@ -650,6 +855,7 @@ function Section:AddTextbox(opts)
 	connect(box.FocusLost, function()
 		obj:SetValue(box.Text)
 	end)
+	applyRestored(obj, opts)
 	return obj
 end
 
@@ -660,7 +866,7 @@ local function buildDropdown(self, opts, multi)
 	frame.Size = UDim2.new(1, 0, 0, 50)
 
 	local obj = newOption(opts, multi and "MultiDropdown" or "Dropdown", multi and {} or opts.Default)
-	if multi and type(opts.Default) == "table" then
+	if multi and not obj.Restored and type(opts.Default) == "table" then
 		obj.Value = table.clone(opts.Default)
 	end
 
@@ -762,6 +968,7 @@ local function buildDropdown(self, opts, multi)
 		arrow.Text = listFrame.Visible and "^" or "v"
 	end)
 	rebuild()
+	applyRestored(obj, opts)
 	return obj
 end
 
@@ -802,6 +1009,7 @@ function Section:AddKeybind(opts)
 		for _, fn in ipairs(self.Changed) do
 			safeCall(fn, v)
 		end
+		queueSave()
 	end
 
 	connect(btn.MouseButton1Click, function()
@@ -927,6 +1135,7 @@ function Section:AddColorpicker(opts)
 		panel.Visible = not panel.Visible
 	end)
 	render()
+	applyRestored(obj, opts)
 	return obj
 end
 
@@ -1191,6 +1400,20 @@ function Window:AddSettingsTab()
 	local tab = self:AddTab("Settings", "System")
 
 	local menu = tab:AddSection("Menu")
+	menu:AddToggle({
+		Name = "Auto-save settings",
+		Default = Library.AutoSave,
+		Callback = function(v)
+			Library.AutoSave = v
+		end,
+	})
+	menu:AddButton({
+		Name = "Delete saved settings",
+		Callback = function()
+			Library:ResetSaved()
+			Library:Notify("Saved settings deleted")
+		end,
+	})
 	menu:AddButton({
 		Name = "Unload interface",
 		Callback = function()
@@ -1566,10 +1789,13 @@ function Library:CreateWindow(opts)
 	}, { Corner(8), Stroke(), Padding(10, 6), List(4) })
 	local popupSection = setmetatable({ Body = popup, Window = window }, Section)
 	local accentPicker = popupSection:AddColorpicker({ Name = "Accent color", Flag = "__accent", Default = Theme.Accent })
-	accentPicker.NoSave = true
 	accentPicker:OnChanged(function(c)
 		Library:SetAccent(c)
 	end)
+	-- The accent color is saved too: if a different one was restored, apply it now
+	if accentPicker.Value ~= Theme.Accent then
+		Library:SetAccent(accentPicker.Value)
+	end
 	table.remove(window.Elements) -- search must not hide this picker
 
 	-- One-click accent presets (Library.Presets). Each click just calls the picker, which calls SetAccent.

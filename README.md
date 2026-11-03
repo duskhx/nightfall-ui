@@ -33,11 +33,22 @@ Values with a `Flag` are stored in `Library.Flags[flag]`, and the control itself
 - **FPS / ping colors:** green, yellow or red depending on the value.
 - **Notifications:** `Library:Notify("text", seconds)` shows a small toast (max 5 at once). Save, load, delete and autoload in the settings tab use it.
 - **Accent presets:** quick swatches in the color popup, defined in `Library.Presets`.
+- **Auto-save:** settings are remembered between sessions (see below).
 - **Fix:** dropdown `SetValues` no longer leaves old button connections in memory.
+
+### Saving your settings
+
+Every control that has a `Flag` is saved automatically about a second after you stop changing it, and restored the next time the menu is created (toggles, sliders, dropdowns, keybinds, textboxes and colors, including the accent color). A control's callback runs once with the restored value, exactly as if you had set it by hand. Saved values that no longer make sense (a removed dropdown option, a slider out of range, a damaged file) are ignored and the default is used.
+
+- Settings are written to files in the `NightfallUI` folder (`Library.Folder`) when the environment provides `writefile` / `readfile` / `isfile`. In an environment without file access they only live in memory; to keep them anyway, replace `Library.Storage` with `{ Write, Read, Delete, List }` (for example DataStore through the server).
+- `Library.AutoSave = false` turns it off. The settings tab has an **Auto-save settings** switch and a **Delete saved settings** button.
+- Controls you don't want saved: pass `NoSave = true` in their options.
+- Named configs (`SaveConfig` / `LoadConfig`) keep working, and the autosave file is hidden from that list.
+- Cost: one small JSON file write after you stop changing something. While you drag a slider or color nothing is written.
 
 ### Performance
 
-Nothing new runs every frame. The only per-frame code is the existing `Heartbeat` counter, which now also sleeps while the window is compact (the FPS card is hidden then) and updates its text once per second. Hover, tab and toast animations are one-shot tweens, there is no blur, no looping gradient and no `CanvasGroup`. The UI never touches the network, so it cannot change your ping; it only reads `GetNetworkPing()` once per second to show it.
+Nothing new runs every frame. The only per-frame code is the existing `Heartbeat` counter, which now also sleeps while the window is compact (the FPS card is hidden then) and updates its text once per second. Hover, tab and toast animations are one-shot tweens, there is no blur, no looping gradient and no `CanvasGroup`. The UI never touches the network, so it cannot change your ping (saving only writes a small local file); it only reads `GetNetworkPing()` once per second to show it.
 
 ## Window
 
