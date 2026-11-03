@@ -26,7 +26,7 @@ Values with a `Flag` are stored in `Library.Flags[flag]`, and the control itself
 
 ## What's new in 1.1.0
 
-- **Tab indicator and icons:** the selected tab gets an accent bar. `Window:AddTab(name, category, icon)` takes an optional icon: an image id string, or `{ Image = id, Offset = Vector2.new(x, y), Size = Vector2.new(w, h) }` to use one cell of a sprite sheet (one uploaded image for all icons is the cheapest option).
+- **Tab indicator and icons:** the selected tab gets a purple-tinted fill and an accent bar. Tabs get a built-in icon automatically (small shapes drawn with frames, no upload needed): `grid`, `ring`, `bars`, `diamond`, `dot`, `sliders`. Pick one with `Window:AddTab(name, category, "grid")`, pass `false` for no icon, or set `Library.AutoIcons = false`. You can also pass an image id string, or `{ Image = id, Offset = Vector2.new(x, y), Size = Vector2.new(w, h) }` to use one cell of a sprite sheet.
 - **Compact sidebar:** when the window is narrower than `CompactWidth` (default 360, set `CompactWidth = 0` to disable) the sidebar becomes an icon rail (first letter of the tab if it has no icon). It switches only when the width crosses the limit.
 - **Collapsible sections:** click a section title to fold it. `Tab:AddSection(name, true)` starts folded.
 - **Slider:** round handle on the bar and the value in a pill.

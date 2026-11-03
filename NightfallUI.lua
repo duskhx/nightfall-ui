@@ -1209,6 +1209,98 @@ Window.__index = Window
 
 local SIDEBAR_FULL, SIDEBAR_COMPACT = 150, 44
 
+-- Built-in icons: tiny shapes drawn with frames, so no image has to be uploaded.
+-- Use them by name in AddTab(name, category, "grid"). Tabs without an icon get one automatically
+-- (set Library.AutoIcons = false, or pass false as the icon, to turn that off).
+-- Each builder gets a 16x16 holder and a `part(props, children)` helper that registers a recolorable piece.
+local function dot(part, x, y, size)
+	part({ Position = UDim2.fromOffset(x, y), Size = UDim2.fromOffset(size, size) }, { Corner(size / 2) })
+end
+local function box(part, x, y, w, h, r)
+	part({ Position = UDim2.fromOffset(x, y), Size = UDim2.fromOffset(w, h) }, { Corner(r or 2) })
+end
+
+local BuiltinIcons = {
+	grid = function(part)
+		box(part, 1, 1, 6, 6)
+		box(part, 9, 1, 6, 6)
+		box(part, 1, 9, 6, 6)
+		box(part, 9, 9, 6, 6)
+	end,
+	bars = function(part)
+		box(part, 1, 2, 14, 2, 1)
+		box(part, 1, 7, 10, 2, 1)
+		box(part, 1, 12, 12, 2, 1)
+	end,
+	sliders = function(part)
+		box(part, 1, 4, 14, 2, 1)
+		box(part, 1, 11, 14, 2, 1)
+		dot(part, 3, 2, 6)
+		dot(part, 8, 9, 6)
+	end,
+	ring = function(part)
+		part({ Position = UDim2.fromOffset(1, 1), Size = UDim2.fromOffset(14, 14), BackgroundTransparency = 1, Ring = true }, { Corner(7) })
+	end,
+	diamond = function(part)
+		part({ Position = UDim2.fromOffset(3, 3), Size = UDim2.fromOffset(10, 10), Rotation = 45 }, { Corner(2) })
+	end,
+	dot = function(part)
+		dot(part, 3, 3, 10)
+	end,
+}
+local AutoIconOrder = { "grid", "ring", "bars", "diamond", "dot" }
+Library.AutoIcons = true
+
+-- Builds the icon holder inside `parent`. Returns the holder and a function that recolors it.
+local function buildIcon(parent, icon)
+	if type(icon) == "string" and BuiltinIcons[icon] then
+		local holder = Frame({ Size = UDim2.fromOffset(16, 16), BackgroundTransparency = 1, Parent = parent })
+		local parts = {}
+		BuiltinIcons[icon](function(props, children)
+			local ring = props.Ring
+			props.Ring = nil
+			props.BackgroundColor3 = Theme.TextDim
+			props.Parent = holder
+			local inst = Frame(props, children)
+			if ring then
+				local stroke = Stroke(Theme.TextDim, 2)
+				stroke.Parent = inst
+				table.insert(parts, { stroke, "Color" })
+			else
+				table.insert(parts, { inst, "BackgroundColor3" })
+			end
+		end)
+		return holder, function(color)
+			for _, entry in ipairs(parts) do
+				entry[1][entry[2]] = color
+			end
+		end
+	end
+
+	local props = { Image = icon }
+	if type(icon) == "table" then
+		props = {
+			Image = icon.Image,
+			ImageRectOffset = icon.Offset or Vector2.zero,
+			ImageRectSize = icon.Size or Vector2.zero,
+		}
+	end
+	props.Size = UDim2.fromOffset(16, 16)
+	props.BackgroundTransparency = 1
+	props.BorderSizePixel = 0
+	props.ImageColor3 = Theme.TextDim
+	props.Parent = parent
+	local image = New("ImageLabel", props)
+	return image, function(color)
+		image.ImageColor3 = color
+	end
+end
+
+-- Selected tab fill: the button color pulled slightly toward the accent (computed on select, not per frame)
+local function selectedFill()
+	return Theme.Element:Lerp(Theme.Accent, 0.22)
+end
+
 -- Lays one tab button out for the current mode: full text, or icon / first letter when compact.
 -- Only runs when a tab is added or when the window crosses the compact threshold.
 local function layoutTab(tab, compact)
@@ -1242,33 +1334,37 @@ end
 function Window:AddTab(name, category, icon)
 	if category and category ~= self.LastCategory then
 		self.LastCategory = category
+		-- Row: label, then a line that fills the rest of the width (no background box behind the text)
 		local holder = Frame({
 			Size = UDim2.new(1, 0, 0, 22),
 			BackgroundTransparency = 1,
 			LayoutOrder = #self.Tabs * 2,
 			Visible = not self.Compact,
 			Parent = self.TabList,
+		}, {
+			New("UIListLayout", {
+				FillDirection = Enum.FillDirection.Horizontal,
+				VerticalAlignment = Enum.VerticalAlignment.Center,
+				Padding = UDim.new(0, 6),
+				SortOrder = Enum.SortOrder.LayoutOrder,
+			}),
 		})
-		Frame({
-			AnchorPoint = Vector2.new(0, 0.5),
-			Position = UDim2.fromScale(0, 0.5),
-			Size = UDim2.new(1, 0, 0, 1),
-			BackgroundColor3 = Theme.Outline,
-			Parent = holder,
-		})
-		-- The label covers the start of the line, so the line only shows to the right of the text
-		local text = Label({
+		Label({
 			Size = UDim2.new(0, 0, 1, 0),
 			AutomaticSize = Enum.AutomaticSize.X,
 			Text = string.upper(category),
 			TextColor3 = Theme.TextDim,
 			TextSize = 11,
 			Font = FONT_BOLD,
-			ZIndex = 2,
+			LayoutOrder = 1,
 			Parent = holder,
-		}, { Padding(0, 0, 6, 0) })
-		text.BackgroundTransparency = 0
-		text.BackgroundColor3 = Theme.Sidebar
+		})
+		Frame({
+			Size = UDim2.new(0, 0, 0, 1),
+			BackgroundColor3 = Theme.Outline,
+			LayoutOrder = 2,
+			Parent = holder,
+		}, { New("UIFlexItem", { FlexMode = Enum.UIFlexMode.Fill }) })
 		table.insert(self.CategoryHolders, holder)
 	end
 
@@ -1304,22 +1400,18 @@ function Window:AddTab(name, category, icon)
 	}, { Corner(2) })
 	accent(indicator, "BackgroundColor3")
 
-	local iconLabel
-	if icon then
-		local props = { Image = icon }
-		if type(icon) == "table" then
-			props = {
-				Image = icon.Image,
-				ImageRectOffset = icon.Offset or Vector2.zero,
-				ImageRectSize = icon.Size or Vector2.zero,
-			}
+	-- Automatic icon when none was given: Settings gets the sliders, other tabs cycle through the shapes
+	if icon == nil and Library.AutoIcons then
+		if string.lower(name) == "settings" then
+			icon = "sliders"
+		else
+			self.AutoIconCount = (self.AutoIconCount or 0) + 1
+			icon = AutoIconOrder[(self.AutoIconCount - 1) % #AutoIconOrder + 1]
 		end
-		props.Size = UDim2.fromOffset(16, 16)
-		props.BackgroundTransparency = 1
-		props.BorderSizePixel = 0
-		props.ImageColor3 = Theme.TextDim
-		props.Parent = btn
-		iconLabel = New("ImageLabel", props)
+	end
+	local iconLabel, setIconColor
+	if icon then
+		iconLabel, setIconColor = buildIcon(btn, icon)
 	end
 
 	local tab = setmetatable({
@@ -1330,6 +1422,7 @@ function Window:AddTab(name, category, icon)
 		Pad = pad,
 		Indicator = indicator,
 		Icon = iconLabel,
+		SetIconColor = setIconColor,
 	}, Tab)
 	table.insert(self.Tabs, tab)
 	layoutTab(tab, self.Compact == true)
@@ -1355,14 +1448,16 @@ function Window:SelectTab(tab, instant)
 		local button = t.Button
 		local transparency = active and 0 or 1
 		local textColor = active and Theme.Text or Theme.TextDim
+		local fill = active and selectedFill() or Theme.Element
 		if instant then
 			button.BackgroundTransparency = transparency
+			button.BackgroundColor3 = fill
 			button.TextColor3 = textColor
 		else
-			tween(button, { BackgroundTransparency = transparency, TextColor3 = textColor })
+			tween(button, { BackgroundTransparency = transparency, BackgroundColor3 = fill, TextColor3 = textColor })
 		end
-		if t.Icon then
-			t.Icon.ImageColor3 = active and Theme.Accent or Theme.TextDim
+		if t.SetIconColor then
+			t.SetIconColor(active and Theme.Accent or Theme.TextDim)
 		end
 	end
 end
